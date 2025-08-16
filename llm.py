@@ -41,7 +41,7 @@ class ModelConfig:
     muon_lr: float = 0.01
 
     # Data parameters - byte-level
-    max_seq_len: int = 1600  # 28*28 image + digits + operators = ~800-1600 bytes
+    max_seq_len: int = 787  # 1 digit + 784 image + 2 result = 787 bytes max
     vocab_size: int = 256  # 0-255 byte values
     num_samples: int = 10000
 
@@ -57,12 +57,8 @@ class ModelConfig:
     # Technical
     use_amp: bool = True
 
-    # Special tokens
-    PLUS_TOKEN: int = 250  # '+' 
-    EQUALS_TOKEN: int = 251  # '='
-    PAD_TOKEN: int = 252
-    START_TOKEN: int = 253
-    END_TOKEN: int = 254
+    # No special tokens needed - just raw bytes
+    PAD_TOKEN: int = 255  # Use 255 for padding
 
     def __post_init__(self):
         self.d_k = self.d_model // self.n_heads
@@ -129,7 +125,7 @@ def load_mnist_data(cache_dir: str = "mnist_cache"):
     return train_dataset, test_dataset
 
 def create_addition_sequence(digit1: int, image2: np.ndarray, true_label: int, config: ModelConfig) -> List[int]:
-    """Create a byte sequence for: digit1 + image_label = result"""
+    """Create a byte sequence for: digit1_byte + image_bytes = result_bytes"""
     # Convert digit to ASCII byte (48-57 for '0'-'9')
     digit1_byte = ord(str(digit1))
     
@@ -143,14 +139,10 @@ def create_addition_sequence(digit1: int, image2: np.ndarray, true_label: int, c
     result_str = str(result)
     result_bytes = [ord(c) for c in result_str]
     
-    # Create sequence: START + digit1 + PLUS + image_bytes + EQUALS + result + END
-    sequence = [config.START_TOKEN]
-    sequence.append(digit1_byte)
-    sequence.append(config.PLUS_TOKEN)
-    sequence.extend(image_bytes)
-    sequence.append(config.EQUALS_TOKEN)
-    sequence.extend(result_bytes)
-    sequence.append(config.END_TOKEN)
+    # Simple format: digit_byte + image_bytes + result_bytes
+    sequence = [digit1_byte]  # First character as text byte
+    sequence.extend(image_bytes)  # Full raw image bytes
+    sequence.extend(result_bytes)  # Result as 1-2 text bytes
     
     return sequence
 
@@ -173,11 +165,7 @@ def generate_arithmetic_data(mnist_train, mnist_test, config: ModelConfig):
         # Create sequence
         sequence = create_addition_sequence(digit1, image_np, label, config)
         
-        # Pad or truncate to max_seq_len
-        if len(sequence) > config.max_seq_len:
-            sequence = sequence[:config.max_seq_len]
-        else:
-            sequence.extend([config.PAD_TOKEN] * (config.max_seq_len - len(sequence)))
+        # No padding needed - sequences are fixed length (1 + 784 + 1-2 = 786-787)
         
         sequences.append(sequence)
     
@@ -225,6 +213,43 @@ def draw_byte_image(image_bytes: List[int], width: int = 28, height: int = 28):
     if height > 5:
         print(f"... ({height - 5} more rows)")
 
+def show_training_example(input_seq, target_seq, pred_seq, step):
+    """Show a training example during training"""
+    print(f"\n🔍 TRAINING EXAMPLE AT STEP {step}")
+    print("=" * 80)
+    
+    # Convert tensors to lists
+    input_bytes = input_seq.cpu().tolist()
+    target_bytes = target_seq.cpu().tolist()
+    pred_bytes = pred_seq.cpu().tolist()
+    
+    # Parse the sequence: digit + image + result
+    digit_byte = input_bytes[0]
+    image_bytes = input_bytes[1:785]  # 784 bytes
+    
+    # Find where result starts in target (after image)
+    result_start = 785
+    target_result = target_bytes[result_start:]
+    pred_result = pred_bytes[result_start:]
+    
+    print(f"📝 Input digit: {digit_byte} = '{chr(digit_byte) if 48 <= digit_byte <= 57 else '?'}'")
+    print(f"📊 Sequence length: {len(input_bytes)}")
+    
+    # Show the image
+    draw_ascii_image(image_bytes)
+    print()
+    draw_byte_image(image_bytes)
+    
+    # Show results
+    target_str = ''.join([chr(b) for b in target_result if 48 <= b <= 57])
+    pred_str = ''.join([chr(b) for b in pred_result if 48 <= b <= 57])
+    
+    print(f"\n🎯 Target result: {target_result[:5]} -> '{target_str}'")
+    print(f"🤖 Predicted result: {pred_result[:5]} -> '{pred_str}'")
+    print(f"✅ Match: {target_str == pred_str}")
+    
+    print("=" * 80)
+
 def visualize_training_data(sequences: List[List[int]], config: ModelConfig, num_examples: int = 3):
     """Visualize what the training data looks like"""
     print(f"\n🔍 TRAINING DATA EXAMPLES:")
@@ -235,52 +260,42 @@ def visualize_training_data(sequences: List[List[int]], config: ModelConfig, num
         print(f"\n📊 Example {i+1}:")
         print("-" * 60)
         
-        # Find key positions
-        start_pos = sequence.index(config.START_TOKEN) if config.START_TOKEN in sequence else -1
-        plus_pos = sequence.index(config.PLUS_TOKEN) if config.PLUS_TOKEN in sequence else -1
-        equals_pos = sequence.index(config.EQUALS_TOKEN) if config.EQUALS_TOKEN in sequence else -1
-        end_pos = sequence.index(config.END_TOKEN) if config.END_TOKEN in sequence else -1
+        # Parse simple format: digit + image + result
+        digit_byte = sequence[0]
+        image_bytes = sequence[1:785]  # 784 bytes
+        result_bytes = sequence[785:]  # 1-2 bytes
         
-        if start_pos >= 0 and plus_pos >= 0 and equals_pos >= 0 and end_pos >= 0:
-            # Extract components
-            digit1_byte = sequence[start_pos + 1]
-            digit1_char = chr(digit1_byte)
-            
-            # Image bytes (between PLUS and EQUALS)
-            image_bytes = sequence[plus_pos + 1:equals_pos]
-            
-            # Result bytes (between EQUALS and END)
-            result_bytes = sequence[equals_pos + 1:end_pos]
-            result_str = ''.join([chr(b) for b in result_bytes])
-            
-            print(f"🧮 Operation: {digit1_char} + [MNIST digit] = {result_str}")
-            print(f"📏 Sequence length: {len(sequence)} bytes")
-            print(f"🎯 Structure: START({start_pos}) → DIGIT({start_pos+1}) → PLUS({plus_pos}) → IMAGE({plus_pos+1}:{equals_pos}) → EQUALS({equals_pos}) → RESULT({equals_pos+1}:{end_pos}) → END({end_pos})")
-            
-            # Draw the MNIST image
-            if len(image_bytes) == 784:
-                draw_ascii_image(image_bytes)
-                print()
-                draw_byte_image(image_bytes)
-            else:
-                print(f"⚠️  Image has wrong size: {len(image_bytes)} bytes")
-            
-            # Show statistics
-            print(f"📊 Image stats: min={min(image_bytes)}, max={max(image_bytes)}, mean={np.mean(image_bytes):.1f}, non-zero={sum(1 for b in image_bytes if b > 0)}")
-            
-            # Show first few bytes
-            print(f"🔢 First 15 bytes: {sequence[:15]}")
-            
-            # Verify arithmetic
-            try:
-                digit_val = int(digit1_char)
-                result_val = int(result_str)
-                expected_second = result_val - digit_val
-                print(f"✅ Arithmetic check: {digit_val} + {expected_second} = {result_val}")
-            except:
-                print(f"❌ Could not verify arithmetic")
+        digit_char = chr(digit_byte) if 48 <= digit_byte <= 57 else '?'
+        result_str = ''.join([chr(b) for b in result_bytes if 48 <= b <= 57])
+        
+        print(f"🧮 Format: '{digit_char}' + [MNIST image] = '{result_str}'")
+        print(f"📏 Sequence length: {len(sequence)} bytes")
+        print(f"🎯 Structure: DIGIT(0) → IMAGE(1:785) → RESULT(785:)")
+        
+        # Draw the MNIST image
+        if len(image_bytes) == 784:
+            draw_ascii_image(image_bytes)
+            print()
+            draw_byte_image(image_bytes)
         else:
-            print(f"❌ Malformed sequence - missing tokens")
+            print(f"⚠️  Image has wrong size: {len(image_bytes)} bytes")
+        
+        # Show statistics
+        print(f"📊 Image stats: min={min(image_bytes)}, max={max(image_bytes)}, mean={np.mean(image_bytes):.1f}, non-zero={sum(1 for b in image_bytes if b > 0)}")
+        
+        # Show key bytes
+        print(f"🔢 Digit byte: {digit_byte} = '{digit_char}'")
+        print(f"🔢 Result bytes: {result_bytes} = '{result_str}'")
+        print(f"🔢 First 10 image bytes: {image_bytes[:10]}")
+        
+        # Verify arithmetic
+        try:
+            digit_val = int(digit_char)
+            result_val = int(result_str)
+            expected_second = result_val - digit_val
+            print(f"✅ Arithmetic: {digit_val} + {expected_second} = {result_val}")
+        except:
+            print(f"❌ Could not parse arithmetic")
         
         print()
     
@@ -549,7 +564,7 @@ def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataL
                     for scheduler in schedulers:
                         scheduler.step()
 
-            # Logging
+            # Logging and visualization
             if step % 100 == 0:
                 with torch.no_grad():
                     predictions = logits.argmax(dim=-1)
@@ -563,6 +578,10 @@ def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataL
                     'ppl': f'{perplexity:.1f}',
                     'lr': f'{optimizers[0].param_groups[0]["lr"]:.2e}'
                 })
+                
+                # Show training example every 500 steps
+                if step % 500 == 0 and step > 0:
+                    show_training_example(x[0], y[0], predictions[0], step)
 
             # Evaluation
             if step % config.eval_every == 0 and step > 0:
