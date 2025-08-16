@@ -457,7 +457,7 @@ def evaluate_model(model: nn.Module, val_loader: DataLoader, config: ModelConfig
 
             with autocast(enabled=config.use_amp):
                 logits = model(x)
-                loss = F.cross_entropy(logits.view(-1, config.vocab_size), y.view(-1))
+                loss = compute_masked_loss(logits, y, config)
 
             total_loss += loss.item() * y.numel()
             total_tokens += y.numel()
@@ -471,6 +471,47 @@ def evaluate_model(model: nn.Module, val_loader: DataLoader, config: ModelConfig
 
     model.train()
     return {'val_loss': avg_loss, 'val_accuracy': accuracy, 'val_perplexity': perplexity}
+
+def compute_masked_loss(logits: torch.Tensor, targets: torch.Tensor, config: ModelConfig) -> torch.Tensor:
+    """Compute loss only on result positions (after image bytes)"""
+    batch_size, seq_len, vocab_size = logits.shape
+    
+    # Create mask: only compute loss on result positions
+    # Format: [digit_byte] + [784 image bytes] + [result_bytes] + [padding]
+    # We only want to predict result_bytes (positions 785+)
+    mask = torch.zeros_like(targets, dtype=torch.bool)
+    
+    # Result starts at position 785 (1 digit + 784 image)
+    result_start = 785
+    
+    for i in range(batch_size):
+        # Find where padding starts (first PAD_TOKEN after result_start)
+        seq = targets[i]
+        result_end = seq_len
+        
+        # Find end of actual result (before padding)
+        for j in range(result_start, seq_len):
+            if seq[j] == config.PAD_TOKEN:
+                result_end = j
+                break
+        
+        # Mask only the result positions
+        mask[i, result_start:result_end] = True
+    
+    # Apply mask and compute loss
+    if mask.sum() == 0:
+        # No valid positions to compute loss on
+        return torch.tensor(0.0, device=logits.device, requires_grad=True)
+    
+    # Flatten and apply mask
+    logits_flat = logits.view(-1, vocab_size)
+    targets_flat = targets.view(-1)
+    mask_flat = mask.view(-1)
+    
+    # Compute loss only on masked positions
+    loss = F.cross_entropy(logits_flat[mask_flat], targets_flat[mask_flat])
+    
+    return loss
 
 def setup_muon_optimizer(model: nn.Module, config: ModelConfig):
     """Setup Muon optimizer with hybrid approach"""
@@ -545,12 +586,12 @@ def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataL
             if config.use_amp:
                 with autocast():
                     logits = model(x)
-                    loss = F.cross_entropy(logits.view(-1, config.vocab_size), y.view(-1))
+                    loss = compute_masked_loss(logits, y, config)
                     loss = loss / config.gradient_accumulation_steps
                 scaler.scale(loss).backward()
             else:
                 logits = model(x)
-                loss = F.cross_entropy(logits.view(-1, config.vocab_size), y.view(-1))
+                loss = compute_masked_loss(logits, y, config)
                 loss = loss / config.gradient_accumulation_steps
                 loss.backward()
 
