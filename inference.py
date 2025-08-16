@@ -68,11 +68,17 @@ def predict_result(model, input_sequence: List[int], config: ModelConfig, max_ne
     """Generate the result using the model"""
     device = next(model.parameters()).device
     
+    # Pad input to match training format
+    padded_input = input_sequence.copy()
+    while len(padded_input) < config.max_seq_len:
+        padded_input.append(config.PAD_TOKEN)
+    
     # Convert to tensor and add batch dimension
-    input_tensor = torch.tensor(input_sequence, dtype=torch.long).unsqueeze(0).to(device)
+    input_tensor = torch.tensor(padded_input[:-max_new_tokens], dtype=torch.long).unsqueeze(0).to(device)
     
     print(f"🤖 Generating result...")
     print(f"   Input length: {len(input_sequence)} bytes")
+    print(f"   Padded length: {len(padded_input)} bytes")
     
     generated = input_tensor.clone()
     
@@ -83,19 +89,34 @@ def predict_result(model, input_sequence: List[int], config: ModelConfig, max_ne
             
             # Get next token (last position)
             next_token_logits = logits[0, -1, :]
+            
+            # Show top predictions for debugging
+            top_probs, top_indices = torch.topk(torch.softmax(next_token_logits, dim=-1), 5)
+            print(f"   Top 5 predictions:")
+            for j in range(5):
+                token_val = top_indices[j].item()
+                prob = top_probs[j].item()
+                char_repr = f"'{chr(token_val)}'" if 32 <= token_val <= 126 else f"byte_{token_val}"
+                print(f"     {token_val:3d} ({char_repr}): {prob:.3f}")
+            
             next_token = torch.argmax(next_token_logits, dim=-1)
             
             # Add to sequence
             generated = torch.cat([generated, next_token.unsqueeze(0).unsqueeze(0)], dim=1)
             
-            # Stop if we get padding token or non-digit
-            if next_token.item() == config.PAD_TOKEN or not (48 <= next_token.item() <= 57):
-                break
+            print(f"   Generated token {i+1}: {next_token.item()}", end="")
+            if 48 <= next_token.item() <= 57:
+                print(f" = '{chr(next_token.item())}'")
+            else:
+                print(f" (not a digit)")
             
-            print(f"   Generated token {i+1}: {next_token.item()} = '{chr(next_token.item())}'")
+            # Stop if we get padding token or after generating result
+            if next_token.item() == config.PAD_TOKEN:
+                print(f"   Stopped at padding token")
+                break
     
     # Extract generated result
-    result_tokens = generated[0, len(input_sequence):].cpu().tolist()
+    result_tokens = generated[0, len(input_tensor[0]):].cpu().tolist()
     result_str = ''.join([chr(t) for t in result_tokens if 48 <= t <= 57])
     
     return result_str, result_tokens
@@ -233,6 +254,62 @@ def batch_test_mode(model, config: ModelConfig, test_dataset, num_tests: int = 1
     accuracy = correct / total * 100
     print(f"\n📊 Results: {correct}/{total} correct ({accuracy:.1f}% accuracy)")
 
+def debug_model_predictions(model, config: ModelConfig, test_dataset):
+    """Debug what the model is actually predicting"""
+    print(f"\n🔍 DEBUG MODE - Analyzing model behavior")
+    print("=" * 80)
+    
+    device = next(model.parameters()).device
+    
+    # Test with a simple known example
+    digit = 5
+    img_idx = 0
+    image, true_label = test_dataset[img_idx]
+    image_np = image.squeeze().numpy()
+    
+    print(f"🧪 Debug example: {digit} + {true_label} = {digit + true_label}")
+    
+    # Create full training-style sequence
+    input_seq = create_input_sequence(digit, image_np, config)
+    expected_result = digit + true_label
+    expected_result_bytes = [ord(c) for c in str(expected_result)]
+    
+    # Create full sequence as model was trained
+    full_sequence = input_seq + expected_result_bytes
+    while len(full_sequence) < config.max_seq_len:
+        full_sequence.append(config.PAD_TOKEN)
+    
+    print(f"📏 Full sequence length: {len(full_sequence)}")
+    print(f"🎯 Expected result bytes: {expected_result_bytes} = '{str(expected_result)}'")
+    
+    # Test model on the full sequence
+    input_tensor = torch.tensor(full_sequence[:-1], dtype=torch.long).unsqueeze(0).to(device)
+    target_tensor = torch.tensor(full_sequence[1:], dtype=torch.long).unsqueeze(0).to(device)
+    
+    with torch.no_grad():
+        logits = model(input_tensor)
+        predictions = torch.argmax(logits, dim=-1)
+        
+        # Check predictions at result positions
+        result_start = len(input_seq)
+        result_positions = list(range(result_start, result_start + len(expected_result_bytes)))
+        
+        print(f"\n🔍 Model predictions at result positions:")
+        for i, pos in enumerate(result_positions):
+            if pos < logits.size(1):
+                pred_token = predictions[0, pos].item()
+                target_token = target_tensor[0, pos].item()
+                
+                pred_char = chr(pred_token) if 48 <= pred_token <= 57 else f"byte_{pred_token}"
+                target_char = chr(target_token) if 48 <= target_token <= 57 else f"byte_{target_token}"
+                
+                match = "✅" if pred_token == target_token else "❌"
+                print(f"   Position {pos}: predicted {pred_token} ({pred_char}), target {target_token} ({target_char}) {match}")
+        
+        # Check overall accuracy on this sequence
+        correct = (predictions == target_tensor).float().mean().item()
+        print(f"\n📊 Sequence accuracy: {correct:.3f}")
+
 def main():
     print("🚀 Byte-Level Arithmetic LLM Inference")
     print("=" * 50)
@@ -254,9 +331,10 @@ def main():
         print(f"\n📋 MAIN MENU")
         print("1. Interactive mode (manual input)")
         print("2. Batch test mode (random examples)")
-        print("3. Quit")
+        print("3. Debug mode (analyze model behavior)")
+        print("4. Quit")
         
-        choice = input("Select option (1-3): ").strip()
+        choice = input("Select option (1-4): ").strip()
         
         if choice == '1':
             interactive_mode(model, config, test_dataset)
@@ -268,6 +346,8 @@ def main():
                 num_tests = 10
             batch_test_mode(model, config, test_dataset, num_tests)
         elif choice == '3':
+            debug_model_predictions(model, config, test_dataset)
+        elif choice == '4':
             print("👋 Goodbye!")
             break
         else:
