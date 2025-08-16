@@ -66,10 +66,10 @@ def draw_ascii_image(image_bytes: List[int], width: int = 28, height: int = 28):
         print(f"Warning: Expected {width*height} pixels, got {len(image_bytes)}")
         return
     
-    # ASCII characters from dark to light
+    # ASCII characters from dark to light (these are just visual representations)
     chars = " .:-=+*#%@"
     
-    print("📸 MNIST Image (28x28 pixels):")
+    print("📸 MNIST Image - ASCII Art (for visual recognition):")
     print("+" + "-" * width + "+")
     
     for row in range(height):
@@ -83,6 +83,27 @@ def draw_ascii_image(image_bytes: List[int], width: int = 28, height: int = 28):
         print(line)
     
     print("+" + "-" * width + "+")
+
+def draw_byte_image(image_bytes: List[int], width: int = 28, height: int = 28):
+    """Draw image showing actual byte values (the real training data)"""
+    if len(image_bytes) != width * height:
+        print(f"Warning: Expected {width*height} pixels, got {len(image_bytes)}")
+        return
+    
+    print("🔢 MNIST Image - Raw Bytes (actual training data):")
+    print("First 10 rows of 28x28 = 280 bytes:")
+    
+    for row in range(min(10, height)):  # Show first 10 rows to avoid too much output
+        line = f"Row {row:2d}: "
+        for col in range(width):
+            pixel_val = image_bytes[row * width + col]
+            line += f"{pixel_val:3d} "
+        print(line)
+    
+    if height > 10:
+        print(f"... ({height - 10} more rows with {width} bytes each)")
+    
+    print(f"Total: {len(image_bytes)} bytes (these are the actual values the LLM sees)")
 
 def visualize_sequence(sequence: List[int], config: ModelConfig, digit1: int, mnist_label: int, result: int):
     """Show detailed breakdown of a sequence"""
@@ -113,7 +134,10 @@ def visualize_sequence(sequence: List[int], config: ModelConfig, digit1: int, mn
     # Extract and visualize the image
     image_bytes = sequence[plus_pos+1:equals_pos]
     if len(image_bytes) == 784:  # 28x28
+        # Show both visual representation AND raw bytes
         draw_ascii_image(image_bytes)
+        print()
+        draw_byte_image(image_bytes)
     else:
         print(f"⚠️  Image has wrong size: {len(image_bytes)} bytes (expected 784)")
     

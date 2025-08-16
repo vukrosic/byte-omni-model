@@ -190,10 +190,10 @@ def draw_ascii_image(image_bytes: List[int], width: int = 28, height: int = 28):
         print(f"Warning: Expected {width*height} pixels, got {len(image_bytes)}")
         return
     
-    # ASCII characters from dark to light
+    # ASCII characters from dark to light (these are just visual representations)
     chars = " .:-=+*#%@"
     
-    print("📸 MNIST Image (28x28 pixels):")
+    print("📸 MNIST Image - ASCII Art:")
     print("+" + "-" * width + "+")
     
     for row in range(height):
@@ -207,6 +207,23 @@ def draw_ascii_image(image_bytes: List[int], width: int = 28, height: int = 28):
         print(line)
     
     print("+" + "-" * width + "+")
+
+def draw_byte_image(image_bytes: List[int], width: int = 28, height: int = 28):
+    """Draw image showing actual byte values"""
+    if len(image_bytes) != width * height:
+        print(f"Warning: Expected {width*height} pixels, got {len(image_bytes)}")
+        return
+    
+    print("🔢 Raw Bytes (first 5 rows):")
+    for row in range(min(5, height)):
+        line = f"Row {row:2d}: "
+        for col in range(width):
+            pixel_val = image_bytes[row * width + col]
+            line += f"{pixel_val:3d} "
+        print(line)
+    
+    if height > 5:
+        print(f"... ({height - 5} more rows)")
 
 def visualize_training_data(sequences: List[List[int]], config: ModelConfig, num_examples: int = 3):
     """Visualize what the training data looks like"""
@@ -243,6 +260,8 @@ def visualize_training_data(sequences: List[List[int]], config: ModelConfig, num
             # Draw the MNIST image
             if len(image_bytes) == 784:
                 draw_ascii_image(image_bytes)
+                print()
+                draw_byte_image(image_bytes)
             else:
                 print(f"⚠️  Image has wrong size: {len(image_bytes)} bytes")
             
