@@ -128,16 +128,18 @@ def load_mnist_data(cache_dir: str = "mnist_cache"):
     print(f"✅ Loaded MNIST: {len(train_dataset)} train, {len(test_dataset)} test samples")
     return train_dataset, test_dataset
 
-def create_addition_sequence(digit1: int, image2: np.ndarray, config: ModelConfig) -> List[int]:
-    """Create a byte sequence for: digit1 + image2_bytes = result"""
+def create_addition_sequence(digit1: int, image2: np.ndarray, true_label: int, config: ModelConfig) -> List[int]:
+    """Create a byte sequence for: digit1 + image_label = result"""
     # Convert digit to ASCII byte (48-57 for '0'-'9')
     digit1_byte = ord(str(digit1))
     
-    # Flatten image to bytes (0-255)
-    image_bytes = (image2.flatten() * 255).astype(np.uint8).tolist()
+    # Flatten image to bytes (0-255) - ensure exactly 784 bytes
+    image_flat = image2.flatten()
+    assert len(image_flat) == 784, f"Expected 784 pixels, got {len(image_flat)}"
+    image_bytes = (image_flat * 255).astype(np.uint8).tolist()
     
-    # Calculate result
-    result = digit1 + np.argmax(np.bincount(image2.flatten().astype(int)))  # Simple: digit + most common pixel value
+    # Use the true MNIST label as second operand
+    result = digit1 + true_label
     result_str = str(result)
     result_bytes = [ord(c) for c in result_str]
     
@@ -169,7 +171,7 @@ def generate_arithmetic_data(mnist_train, mnist_test, config: ModelConfig):
         digit1 = random.randint(1, 9)
         
         # Create sequence
-        sequence = create_addition_sequence(digit1, image_np, config)
+        sequence = create_addition_sequence(digit1, image_np, label, config)
         
         # Pad or truncate to max_seq_len
         if len(sequence) > config.max_seq_len:

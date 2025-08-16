@@ -29,20 +29,25 @@ def load_mnist_sample():
     image, label = dataset[idx]
     return image.squeeze().numpy(), label
 
-def create_addition_sequence(digit1: int, image2: np.ndarray, config: ModelConfig) -> List[int]:
-    """Create a byte sequence for: digit1 + image2_bytes = result"""
+def create_addition_sequence(digit1: int, image2: np.ndarray, true_label: int, config: ModelConfig) -> List[int]:
+    """Create a byte sequence for: digit1 + image_label = result"""
     # Convert digit to ASCII byte (48-57 for '0'-'9')
     digit1_byte = ord(str(digit1))
     
-    # Flatten image to bytes (0-255)
-    image_bytes = (image2.flatten() * 255).astype(np.uint8).tolist()
+    # Flatten image to bytes (0-255) - ensure exactly 784 bytes
+    image_flat = image2.flatten()
+    assert len(image_flat) == 784, f"Expected 784 pixels, got {len(image_flat)}"
+    image_bytes = (image_flat * 255).astype(np.uint8).tolist()
     
-    # Calculate result (simple: digit + MNIST label)
-    # For demo, let's use the actual MNIST label as second operand
-    mnist_label = np.argmax(np.bincount((image2.flatten() * 10).astype(int))) % 10
-    result = digit1 + mnist_label
+    # Use the true MNIST label as second operand
+    result = digit1 + true_label
     result_str = str(result)
     result_bytes = [ord(c) for c in result_str]
+    
+    print(f"  Creating: {digit1} + {true_label} = {result}")
+    print(f"  Digit byte: {digit1_byte} ('{chr(digit1_byte)}')")
+    print(f"  Image bytes: {len(image_bytes)} pixels")
+    print(f"  Result bytes: {result_bytes} -> '{result_str}'")
     
     # Create sequence: START + digit1 + PLUS + image_bytes + EQUALS + result + END
     sequence = [config.START_TOKEN]
@@ -53,7 +58,7 @@ def create_addition_sequence(digit1: int, image2: np.ndarray, config: ModelConfi
     sequence.extend(result_bytes)
     sequence.append(config.END_TOKEN)
     
-    return sequence, mnist_label, result
+    return sequence, true_label, result
 
 def visualize_sequence(sequence: List[int], config: ModelConfig, digit1: int, mnist_label: int, result: int):
     """Show detailed breakdown of a sequence"""
@@ -125,10 +130,10 @@ if __name__ == "__main__":
         digit1 = random.randint(1, 9)
         
         # Create sequence
-        sequence, mnist_label, result = create_addition_sequence(digit1, image, config)
+        sequence, mnist_label, result = create_addition_sequence(digit1, image, true_label, config)
         
         print(f"MNIST true label: {true_label}")
-        print(f"Computed label from pixels: {mnist_label}")
+        print(f"Using label as second operand: {mnist_label}")
         
         # Visualize
         visualize_sequence(sequence, config, digit1, mnist_label, result)
