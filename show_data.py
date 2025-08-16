@@ -60,10 +60,34 @@ def create_addition_sequence(digit1: int, image2: np.ndarray, true_label: int, c
     
     return sequence, true_label, result
 
+def draw_ascii_image(image_bytes: List[int], width: int = 28, height: int = 28):
+    """Draw image using ASCII characters based on pixel intensity"""
+    if len(image_bytes) != width * height:
+        print(f"Warning: Expected {width*height} pixels, got {len(image_bytes)}")
+        return
+    
+    # ASCII characters from dark to light
+    chars = " .:-=+*#%@"
+    
+    print("📸 MNIST Image (28x28 pixels):")
+    print("+" + "-" * width + "+")
+    
+    for row in range(height):
+        line = "|"
+        for col in range(width):
+            pixel_val = image_bytes[row * width + col]
+            # Map 0-255 to 0-9 (length of chars - 1)
+            char_idx = min(9, pixel_val * 9 // 255)
+            line += chars[char_idx]
+        line += "|"
+        print(line)
+    
+    print("+" + "-" * width + "+")
+
 def visualize_sequence(sequence: List[int], config: ModelConfig, digit1: int, mnist_label: int, result: int):
     """Show detailed breakdown of a sequence"""
     print(f"\n🔍 SEQUENCE BREAKDOWN:")
-    print("=" * 60)
+    print("=" * 80)
     
     # Find positions
     start_pos = sequence.index(config.START_TOKEN)
@@ -71,24 +95,41 @@ def visualize_sequence(sequence: List[int], config: ModelConfig, digit1: int, mn
     equals_pos = sequence.index(config.EQUALS_TOKEN)
     end_pos = sequence.index(config.END_TOKEN)
     
-    print(f"Operation: {digit1} + {mnist_label} = {result}")
-    print(f"Total sequence length: {len(sequence)} bytes")
+    print(f"🧮 Operation: {digit1} + {mnist_label} = {result}")
+    print(f"📏 Total sequence length: {len(sequence)} bytes")
     print()
     
     # Show structure
-    print("Sequence structure:")
-    print(f"  [{start_pos}] START_TOKEN ({config.START_TOKEN})")
-    print(f"  [{start_pos+1}] Digit byte: {sequence[start_pos+1]} = '{chr(sequence[start_pos+1])}'")
-    print(f"  [{plus_pos}] PLUS_TOKEN ({config.PLUS_TOKEN})")
-    print(f"  [{plus_pos+1}:{equals_pos}] Image bytes: {equals_pos - plus_pos - 1} bytes (28x28 = 784)")
-    print(f"  [{equals_pos}] EQUALS_TOKEN ({config.EQUALS_TOKEN})")
-    print(f"  [{equals_pos+1}:{end_pos}] Result bytes: {[chr(b) for b in sequence[equals_pos+1:end_pos]]}")
-    print(f"  [{end_pos}] END_TOKEN ({config.END_TOKEN})")
+    print("📋 Sequence structure:")
+    print(f"  [{start_pos:3d}] START_TOKEN ({config.START_TOKEN})")
+    print(f"  [{start_pos+1:3d}] Digit byte: {sequence[start_pos+1]} = '{chr(sequence[start_pos+1])}'")
+    print(f"  [{plus_pos:3d}] PLUS_TOKEN ({config.PLUS_TOKEN})")
+    print(f"  [{plus_pos+1:3d}:{equals_pos:3d}] Image bytes: {equals_pos - plus_pos - 1} bytes (28x28 = 784)")
+    print(f"  [{equals_pos:3d}] EQUALS_TOKEN ({config.EQUALS_TOKEN})")
+    print(f"  [{equals_pos+1:3d}:{end_pos:3d}] Result bytes: {[chr(b) for b in sequence[equals_pos+1:end_pos]]}")
+    print(f"  [{end_pos:3d}] END_TOKEN ({config.END_TOKEN})")
     print()
     
-    # Show first 20 bytes with interpretation
-    print("First 20 bytes:")
-    for i in range(min(20, len(sequence))):
+    # Extract and visualize the image
+    image_bytes = sequence[plus_pos+1:equals_pos]
+    if len(image_bytes) == 784:  # 28x28
+        draw_ascii_image(image_bytes)
+    else:
+        print(f"⚠️  Image has wrong size: {len(image_bytes)} bytes (expected 784)")
+    
+    print()
+    
+    # Show image statistics
+    print(f"📊 Image statistics:")
+    print(f"  Min pixel: {min(image_bytes)}")
+    print(f"  Max pixel: {max(image_bytes)}")
+    print(f"  Mean pixel: {np.mean(image_bytes):.1f}")
+    print(f"  Non-zero pixels: {sum(1 for b in image_bytes if b > 0)}")
+    print()
+    
+    # Show first 30 bytes with interpretation
+    print("🔢 First 30 bytes of sequence:")
+    for i in range(min(30, len(sequence))):
         byte_val = sequence[i]
         if byte_val == config.START_TOKEN:
             interpretation = "START"
@@ -105,13 +146,18 @@ def visualize_sequence(sequence: List[int], config: ModelConfig, digit1: int, mn
         
         print(f"  [{i:2d}] {byte_val:3d} -> {interpretation}")
     
-    # Show image statistics
-    image_bytes = sequence[plus_pos+1:equals_pos]
-    print(f"\nImage statistics:")
-    print(f"  Min pixel: {min(image_bytes)}")
-    print(f"  Max pixel: {max(image_bytes)}")
-    print(f"  Mean pixel: {np.mean(image_bytes):.1f}")
-    print(f"  Non-zero pixels: {sum(1 for b in image_bytes if b > 0)}")
+    if len(sequence) > 30:
+        print(f"  ... ({len(sequence) - 30} more bytes)")
+    
+    print()
+    
+    # Show the actual arithmetic in the sequence
+    print("🎯 Arithmetic verification:")
+    digit_char = chr(sequence[start_pos + 1])
+    result_chars = ''.join([chr(b) for b in sequence[equals_pos+1:end_pos]])
+    print(f"  Sequence shows: '{digit_char}' + [image] = '{result_chars}'")
+    print(f"  Expected: {digit1} + {mnist_label} = {result}")
+    print(f"  ✅ Correct!" if result_chars == str(result) else f"  ❌ Mismatch!")
 
 if __name__ == "__main__":
     print("🔢 MNIST Byte Arithmetic Data Visualization")

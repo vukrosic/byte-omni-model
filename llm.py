@@ -184,6 +184,30 @@ def generate_arithmetic_data(mnist_train, mnist_test, config: ModelConfig):
     print(f"✅ Generated {len(sequences)} arithmetic sequences")
     return sequences
 
+def draw_ascii_image(image_bytes: List[int], width: int = 28, height: int = 28):
+    """Draw image using ASCII characters based on pixel intensity"""
+    if len(image_bytes) != width * height:
+        print(f"Warning: Expected {width*height} pixels, got {len(image_bytes)}")
+        return
+    
+    # ASCII characters from dark to light
+    chars = " .:-=+*#%@"
+    
+    print("📸 MNIST Image (28x28 pixels):")
+    print("+" + "-" * width + "+")
+    
+    for row in range(height):
+        line = "|"
+        for col in range(width):
+            pixel_val = image_bytes[row * width + col]
+            # Map 0-255 to 0-9 (length of chars - 1)
+            char_idx = min(9, pixel_val * 9 // 255)
+            line += chars[char_idx]
+        line += "|"
+        print(line)
+    
+    print("+" + "-" * width + "+")
+
 def visualize_training_data(sequences: List[List[int]], config: ModelConfig, num_examples: int = 3):
     """Visualize what the training data looks like"""
     print(f"\n🔍 TRAINING DATA EXAMPLES:")
@@ -191,8 +215,8 @@ def visualize_training_data(sequences: List[List[int]], config: ModelConfig, num
     
     for i in range(min(num_examples, len(sequences))):
         sequence = sequences[i]
-        print(f"\nExample {i+1}:")
-        print("-" * 40)
+        print(f"\n📊 Example {i+1}:")
+        print("-" * 60)
         
         # Find key positions
         start_pos = sequence.index(config.START_TOKEN) if config.START_TOKEN in sequence else -1
@@ -200,59 +224,44 @@ def visualize_training_data(sequences: List[List[int]], config: ModelConfig, num
         equals_pos = sequence.index(config.EQUALS_TOKEN) if config.EQUALS_TOKEN in sequence else -1
         end_pos = sequence.index(config.END_TOKEN) if config.END_TOKEN in sequence else -1
         
-        print(f"Sequence length: {len(sequence)}")
-        print(f"Key positions - START: {start_pos}, PLUS: {plus_pos}, EQUALS: {equals_pos}, END: {end_pos}")
-        
-        if start_pos >= 0 and plus_pos >= 0:
+        if start_pos >= 0 and plus_pos >= 0 and equals_pos >= 0 and end_pos >= 0:
             # Extract components
-            digit1_byte = sequence[start_pos + 1] if start_pos + 1 < len(sequence) else None
-            digit1 = chr(digit1_byte) if digit1_byte and 48 <= digit1_byte <= 57 else "?"
+            digit1_byte = sequence[start_pos + 1]
+            digit1_char = chr(digit1_byte)
             
             # Image bytes (between PLUS and EQUALS)
-            if equals_pos > plus_pos:
-                image_bytes = sequence[plus_pos + 1:equals_pos]
-                image_size = len(image_bytes)
-            else:
-                image_bytes = []
-                image_size = 0
+            image_bytes = sequence[plus_pos + 1:equals_pos]
             
             # Result bytes (between EQUALS and END)
-            if end_pos > equals_pos:
-                result_bytes = sequence[equals_pos + 1:end_pos]
-                result_str = ''.join([chr(b) for b in result_bytes if 48 <= b <= 57])
+            result_bytes = sequence[equals_pos + 1:end_pos]
+            result_str = ''.join([chr(b) for b in result_bytes])
+            
+            print(f"🧮 Operation: {digit1_char} + [MNIST digit] = {result_str}")
+            print(f"📏 Sequence length: {len(sequence)} bytes")
+            print(f"🎯 Structure: START({start_pos}) → DIGIT({start_pos+1}) → PLUS({plus_pos}) → IMAGE({plus_pos+1}:{equals_pos}) → EQUALS({equals_pos}) → RESULT({equals_pos+1}:{end_pos}) → END({end_pos})")
+            
+            # Draw the MNIST image
+            if len(image_bytes) == 784:
+                draw_ascii_image(image_bytes)
             else:
-                result_bytes = []
-                result_str = "?"
+                print(f"⚠️  Image has wrong size: {len(image_bytes)} bytes")
             
-            print(f"Format: {digit1} + [image:{image_size} bytes] = {result_str}")
+            # Show statistics
+            print(f"📊 Image stats: min={min(image_bytes)}, max={max(image_bytes)}, mean={np.mean(image_bytes):.1f}, non-zero={sum(1 for b in image_bytes if b > 0)}")
             
-            # Show first few bytes of each component
-            print(f"Digit byte: {digit1_byte} ('{digit1}')")
-            print(f"Image bytes (first 10): {image_bytes[:10]}")
-            print(f"Result bytes: {result_bytes} -> '{result_str}'")
+            # Show first few bytes
+            print(f"🔢 First 15 bytes: {sequence[:15]}")
             
-            # Show raw sequence (first 20 bytes)
-            print(f"Raw sequence (first 20): {sequence[:20]}")
-            
-            # Decode special tokens
-            decoded = []
-            for b in sequence[:30]:  # Show first 30 for readability
-                if b == config.START_TOKEN:
-                    decoded.append("START")
-                elif b == config.PLUS_TOKEN:
-                    decoded.append("PLUS")
-                elif b == config.EQUALS_TOKEN:
-                    decoded.append("EQUALS")
-                elif b == config.END_TOKEN:
-                    decoded.append("END")
-                elif b == config.PAD_TOKEN:
-                    decoded.append("PAD")
-                elif 48 <= b <= 57:
-                    decoded.append(f"'{chr(b)}'")
-                else:
-                    decoded.append(str(b))
-            
-            print(f"Decoded (first 30): {decoded}")
+            # Verify arithmetic
+            try:
+                digit_val = int(digit1_char)
+                result_val = int(result_str)
+                expected_second = result_val - digit_val
+                print(f"✅ Arithmetic check: {digit_val} + {expected_second} = {result_val}")
+            except:
+                print(f"❌ Could not verify arithmetic")
+        else:
+            print(f"❌ Malformed sequence - missing tokens")
         
         print()
     
