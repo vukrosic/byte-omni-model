@@ -34,7 +34,7 @@ class ModelConfig:
     n_layers: int = 6
     d_ff: int = 1536
     batch_size: int = 16
-    max_steps: int = 5000
+    max_steps: int = 50000
 
     # Training parameters
     gradient_accumulation_steps: int = 4
