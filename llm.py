@@ -165,7 +165,9 @@ def generate_arithmetic_data(mnist_train, mnist_test, config: ModelConfig):
         # Create sequence
         sequence = create_addition_sequence(digit1, image_np, label, config)
         
-        # No padding needed - sequences are fixed length (1 + 784 + 1-2 = 786-787)
+        # Pad to fixed length for batching
+        while len(sequence) < config.max_seq_len:
+            sequence.append(config.PAD_TOKEN)
         
         sequences.append(sequence)
     
@@ -302,14 +304,23 @@ def visualize_training_data(sequences: List[List[int]], config: ModelConfig, num
     print("=" * 80)
 
 class ByteArithmeticDataset(Dataset):
-    def __init__(self, sequences: List[List[int]]):
+    def __init__(self, sequences: List[List[int]], max_seq_len: int, pad_token: int):
         self.sequences = sequences
+        self.max_seq_len = max_seq_len
+        self.pad_token = pad_token
 
     def __len__(self):
         return len(self.sequences)
 
     def __getitem__(self, idx):
-        sequence = self.sequences[idx]
+        sequence = self.sequences[idx].copy()
+        
+        # Ensure sequence is exactly max_seq_len
+        if len(sequence) < self.max_seq_len:
+            sequence.extend([self.pad_token] * (self.max_seq_len - len(sequence)))
+        elif len(sequence) > self.max_seq_len:
+            sequence = sequence[:self.max_seq_len]
+        
         # Input is sequence[:-1], target is sequence[1:]
         x = torch.tensor(sequence[:-1], dtype=torch.long)
         y = torch.tensor(sequence[1:], dtype=torch.long)
@@ -645,7 +656,7 @@ if __name__ == "__main__":
     # Show examples of training data
     visualize_training_data(sequences, config, num_examples=3)
     
-    dataset = ByteArithmeticDataset(sequences)
+    dataset = ByteArithmeticDataset(sequences, config.max_seq_len, config.PAD_TOKEN)
 
     # Train/val split
     val_size = len(dataset) // 10
@@ -654,8 +665,8 @@ if __name__ == "__main__":
         dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42)
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=2)
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=0)
 
     print(f"📊 Dataset: {len(train_dataset)} train, {len(val_dataset)} val samples")
     print(f"🔢 Byte vocabulary size: {config.vocab_size}")
