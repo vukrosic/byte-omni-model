@@ -182,6 +182,80 @@ def generate_arithmetic_data(mnist_train, mnist_test, config: ModelConfig):
     print(f"✅ Generated {len(sequences)} arithmetic sequences")
     return sequences
 
+def visualize_training_data(sequences: List[List[int]], config: ModelConfig, num_examples: int = 3):
+    """Visualize what the training data looks like"""
+    print(f"\n🔍 TRAINING DATA EXAMPLES:")
+    print("=" * 80)
+    
+    for i in range(min(num_examples, len(sequences))):
+        sequence = sequences[i]
+        print(f"\nExample {i+1}:")
+        print("-" * 40)
+        
+        # Find key positions
+        start_pos = sequence.index(config.START_TOKEN) if config.START_TOKEN in sequence else -1
+        plus_pos = sequence.index(config.PLUS_TOKEN) if config.PLUS_TOKEN in sequence else -1
+        equals_pos = sequence.index(config.EQUALS_TOKEN) if config.EQUALS_TOKEN in sequence else -1
+        end_pos = sequence.index(config.END_TOKEN) if config.END_TOKEN in sequence else -1
+        
+        print(f"Sequence length: {len(sequence)}")
+        print(f"Key positions - START: {start_pos}, PLUS: {plus_pos}, EQUALS: {equals_pos}, END: {end_pos}")
+        
+        if start_pos >= 0 and plus_pos >= 0:
+            # Extract components
+            digit1_byte = sequence[start_pos + 1] if start_pos + 1 < len(sequence) else None
+            digit1 = chr(digit1_byte) if digit1_byte and 48 <= digit1_byte <= 57 else "?"
+            
+            # Image bytes (between PLUS and EQUALS)
+            if equals_pos > plus_pos:
+                image_bytes = sequence[plus_pos + 1:equals_pos]
+                image_size = len(image_bytes)
+            else:
+                image_bytes = []
+                image_size = 0
+            
+            # Result bytes (between EQUALS and END)
+            if end_pos > equals_pos:
+                result_bytes = sequence[equals_pos + 1:end_pos]
+                result_str = ''.join([chr(b) for b in result_bytes if 48 <= b <= 57])
+            else:
+                result_bytes = []
+                result_str = "?"
+            
+            print(f"Format: {digit1} + [image:{image_size} bytes] = {result_str}")
+            
+            # Show first few bytes of each component
+            print(f"Digit byte: {digit1_byte} ('{digit1}')")
+            print(f"Image bytes (first 10): {image_bytes[:10]}")
+            print(f"Result bytes: {result_bytes} -> '{result_str}'")
+            
+            # Show raw sequence (first 20 bytes)
+            print(f"Raw sequence (first 20): {sequence[:20]}")
+            
+            # Decode special tokens
+            decoded = []
+            for b in sequence[:30]:  # Show first 30 for readability
+                if b == config.START_TOKEN:
+                    decoded.append("START")
+                elif b == config.PLUS_TOKEN:
+                    decoded.append("PLUS")
+                elif b == config.EQUALS_TOKEN:
+                    decoded.append("EQUALS")
+                elif b == config.END_TOKEN:
+                    decoded.append("END")
+                elif b == config.PAD_TOKEN:
+                    decoded.append("PAD")
+                elif 48 <= b <= 57:
+                    decoded.append(f"'{chr(b)}'")
+                else:
+                    decoded.append(str(b))
+            
+            print(f"Decoded (first 30): {decoded}")
+        
+        print()
+    
+    print("=" * 80)
+
 class ByteArithmeticDataset(Dataset):
     def __init__(self, sequences: List[List[int]]):
         self.sequences = sequences
@@ -469,6 +543,15 @@ def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataL
 
                 if eval_metrics['val_loss'] < best_val_loss:
                     best_val_loss = eval_metrics['val_loss']
+                    # Save best model
+                    torch.save({
+                        'model_state_dict': model.state_dict(),
+                        'config': config,
+                        'step': step,
+                        'best_val_loss': best_val_loss,
+                        'eval_metrics': eval_metrics
+                    }, 'best_byte_llm.pt')
+                    print(f"💾 Saved best model (val_loss: {best_val_loss:.4f})")
 
             step += 1
             if step % 100 == 0:
@@ -509,6 +592,10 @@ if __name__ == "__main__":
     
     # Generate arithmetic sequences
     sequences = generate_arithmetic_data(mnist_train, mnist_test, config)
+    
+    # Show examples of training data
+    visualize_training_data(sequences, config, num_examples=3)
+    
     dataset = ByteArithmeticDataset(sequences)
 
     # Train/val split
@@ -530,8 +617,17 @@ if __name__ == "__main__":
     model, final_metrics = train_model(config, train_loader, val_loader)
     total_time = time.time() - start_time
 
+    # Save final model
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'config': config,
+        'final_metrics': final_metrics,
+        'total_time': total_time
+    }, 'final_byte_llm.pt')
+
     print(f"\n🎉 TRAINING COMPLETED!")
     print(f"⏱️ Total time: {total_time/60:.1f} minutes")
+    print(f"💾 Models saved: best_byte_llm.pt, final_byte_llm.pt")
     print(f"🏆 Final Results:")
     print(f"   Validation Loss: {final_metrics['val_loss']:.4f}")
     print(f"   Validation Accuracy: {final_metrics['val_accuracy']:.4f}")
