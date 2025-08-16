@@ -229,8 +229,10 @@ def show_training_example(input_seq, target_seq, pred_seq, step):
     digit_byte = input_bytes[0]
     image_bytes = input_bytes[1:785]  # 784 bytes
     
-    # Find where result starts in target (after image)
-    result_start = 785
+    # Find where result starts in target (accounting for 1-position shift)
+    # Input:  [digit] + [784 image bytes] + [result bytes] + [padding]
+    # Target: [784 image bytes] + [result bytes] + [padding] + [padding]
+    result_start = 784  # Result starts at position 784 in target (not 785)
     target_result = target_bytes[result_start:]
     pred_result = pred_bytes[result_start:]
     
@@ -477,12 +479,13 @@ def compute_masked_loss(logits: torch.Tensor, targets: torch.Tensor, config: Mod
     batch_size, seq_len, vocab_size = logits.shape
     
     # Create mask: only compute loss on result positions
-    # Format: [digit_byte] + [784 image bytes] + [result_bytes] + [padding]
-    # We only want to predict result_bytes (positions 785+)
+    # Input:  [digit_byte] + [784 image bytes] + [result_bytes] + [padding]
+    # Target: [784 image bytes] + [result_bytes] + [padding] + [padding] (shifted by 1)
+    # We only want to predict result_bytes (positions 784+ in target)
     mask = torch.zeros_like(targets, dtype=torch.bool)
     
-    # Result starts at position 785 (1 digit + 784 image)
-    result_start = 785
+    # Result starts at position 784 in target (accounting for 1-position shift)
+    result_start = 784
     
     for i in range(batch_size):
         # Find where padding starts (first PAD_TOKEN after result_start)
